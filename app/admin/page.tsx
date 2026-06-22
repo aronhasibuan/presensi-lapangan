@@ -423,7 +423,7 @@ export default function AdminPage() {
 
         {/* Footer */}
         <div className="text-center mt-6 text-xs text-gray-400">
-          <p>Sistem Dashboard Presensi Lapangan 2024</p>
+          <p>Sistem Presensi Sensus Ekonomi 2026 BPS Kota Manado</p>
         </div>
       </div>
     </main>

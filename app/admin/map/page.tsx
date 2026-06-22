@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import { supabase } from "@/lib/supabase";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import dynamic from "next/dynamic";
+
+const MapView = dynamic(() => import("./mapview"), {
+  ssr: false,
+});
 
 // SVG Icons
 const MapIcon = () => (
@@ -105,15 +107,6 @@ type Presensi = {
   alamat: string;
   created_at: string;
 };
-
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
 
 export default function MapPage() {
   const [data, setData] = useState<Presensi[]>([]);
@@ -297,49 +290,7 @@ export default function MapPage() {
               </div>
             </div>
           ) : (
-            <MapContainer
-              center={center}
-              zoom={13}
-              style={{
-                height: "70vh",
-                zIndex: "1",
-              }}
-            >
-              <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-              {data
-                .filter((item) => item.latitude && item.longitude)
-                .map((item) => (
-                  <Marker
-                    key={item.id}
-                    position={[Number(item.latitude), Number(item.longitude)]}
-                  >
-                    <Popup>
-                      <div className="text-center">
-                        <div className="bg-orange-500 text-white rounded-full w-8 h-8 flex items-center justify-center mx-auto mb-2 font-bold">
-                          {item.nama.charAt(0).toUpperCase()}
-                        </div>
-                        <b className="text-gray-800">{item.nama}</b>
-                        <br />
-                        <p className="text-gray-600 text-sm mt-1">
-                          {item.alamat}
-                        </p>
-                        {item.created_at && (
-                          <p className="text-gray-400 text-xs mt-2">
-                            {new Date(item.created_at).toLocaleString("id-ID", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        )}
-                      </div>
-                    </Popup>
-                  </Marker>
-                ))}
-            </MapContainer>
+            <MapView data={data} />
           )}
 
           {/* Map Footer */}
@@ -368,7 +319,7 @@ export default function MapPage() {
 
         {/* Footer */}
         <div className="text-center mt-4 text-xs text-gray-400">
-          <p>Sistem Peta Lokasi Presensi Lapangan 2024</p>
+          <p>Sistem Presensi Sensus Ekonomi 2026 BPS Kota Manado</p>
         </div>
       </div>
     </main>
