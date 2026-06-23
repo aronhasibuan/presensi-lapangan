@@ -101,11 +101,14 @@ const ClockIcon = () => (
 
 type Presensi = {
   id: number;
-  nama: string;
+  petugas_id: number | null;
   latitude: number;
   longitude: number;
   alamat: string;
   created_at: string;
+  petugas: {
+    nama: string;
+  } | null;
 };
 
 export default function MapPage() {
@@ -120,10 +123,19 @@ export default function MapPage() {
     setError(null);
 
     try {
-      // Add sorting by created_at descending (terbaru pertama)
       const { data: presensiData, error } = await supabase
         .from("presensi")
-        .select("*")
+        .select(
+          `
+        id,
+        petugas_id,
+        latitude,
+        longitude,
+        alamat,
+        created_at,
+        petugas(nama)
+      `,
+        )
         .order("created_at", { ascending: false });
 
       console.log("DATA:", presensiData);
@@ -132,7 +144,7 @@ export default function MapPage() {
       if (error) {
         setError(error.message);
       } else {
-        setData(presensiData || []);
+        setData((presensiData || []) as unknown as Presensi[]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
@@ -216,7 +228,7 @@ export default function MapPage() {
             {latestPresensi ? (
               <>
                 <p className="text-xl font-bold text-gray-800">
-                  {latestPresensi.nama}
+                  {latestPresensi.petugas?.nama ?? "Tidak diketahui"}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
                   {new Date(latestPresensi.created_at).toLocaleString("id-ID", {

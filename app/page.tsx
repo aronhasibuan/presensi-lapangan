@@ -162,12 +162,10 @@ export default function Home() {
     async function loadPetugas() {
       const { data, error } = await supabase
         .from("petugas")
-        .select("*")
+        .select("id, nama")
         .order("nama");
-
       if (!error && data) setPetugas(data);
     }
-
     loadPetugas();
   }, []);
 
@@ -184,9 +182,9 @@ export default function Home() {
   };
 
   const handlePresensi = () => {
-    const nama = selectedPetugas?.nama || query.trim();
+    const petugasId = selectedPetugas?.id ?? null;
 
-    if (!nama) {
+    if (!petugasId) {
       setFeedback({ type: "error", message: "Mohon pilih petugas" });
       return;
     }
@@ -205,7 +203,7 @@ export default function Home() {
           const { data: existing, error: checkError } = await supabase
             .from("presensi")
             .select("id")
-            .eq("nama", nama)
+            .eq("petugas_id", petugasId)
             .eq("presensi_date", today)
             .maybeSingle();
 
@@ -225,7 +223,7 @@ export default function Home() {
           }
 
           const { error } = await supabase.from("presensi").insert({
-            nama,
+            petugas_id: petugasId,
             latitude,
             longitude,
             alamat,

@@ -19,11 +19,14 @@ L.Icon.Default.mergeOptions({
 
 type Presensi = {
   id: number;
-  nama: string;
+  petugas_id: number | null;
   latitude: number;
   longitude: number;
   alamat: string;
   created_at: string;
+  petugas: {
+    nama: string;
+  } | null;
 };
 
 export default function MapView({ data }: { data: Presensi[] }) {
@@ -50,7 +53,7 @@ export default function MapView({ data }: { data: Presensi[] }) {
           >
             <Popup>
               <div className="text-center">
-                <b>{item.nama}</b>
+                <b>{item.petugas?.nama ?? "Tidak diketahui"}</b>
 
                 <br />
 
