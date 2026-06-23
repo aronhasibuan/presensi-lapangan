@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getAddress } from "@/lib/geocode";
 
-// Type untuk lokasi
 interface Location {
   latitude: number;
   longitude: number;
 }
 
-// SVG Icons components (no external library needed)
+type Petugas = {
+  id: string | number;
+  nama: string;
+};
+
 const UserIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -98,15 +102,46 @@ const LoaderIcon = () => (
 );
 
 export default function Home() {
-  const [nama, setNama] = useState("");
+  const router = useRouter();
+
+  const [petugas, setPetugas] = useState<Petugas[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedPetugas, setSelectedPetugas] = useState<Petugas | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error" | null;
     message: string | null;
-  }>({ type: null, message: null });
+  }>({
+    type: null,
+    message: null,
+  });
 
-  // Get current location on component mount
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  const todayLocal = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -123,9 +158,36 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    async function loadPetugas() {
+      const { data, error } = await supabase
+        .from("petugas")
+        .select("*")
+        .order("nama");
+
+      if (!error && data) setPetugas(data);
+    }
+
+    loadPetugas();
+  }, []);
+
+  const filteredPetugas = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    if (!q) return petugas;
+    return petugas.filter((item) => item.nama.toLowerCase().includes(q));
+  }, [petugas, query]);
+
+  const handleSelectPetugas = (item: Petugas) => {
+    setSelectedPetugas(item);
+    setQuery(item.nama);
+    setShowDropdown(false);
+  };
+
   const handlePresensi = () => {
-    if (!nama.trim()) {
-      setFeedback({ type: "error", message: "Mohon masukkan nama lengkap" });
+    const nama = selectedPetugas?.nama || query.trim();
+
+    if (!nama) {
+      setFeedback({ type: "error", message: "Mohon pilih petugas" });
       return;
     }
 
@@ -138,28 +200,62 @@ export default function Home() {
 
         try {
           const alamat = await getAddress(latitude, longitude);
+          const today = todayLocal();
+
+          const { data: existing, error: checkError } = await supabase
+            .from("presensi")
+            .select("id")
+            .eq("nama", nama)
+            .eq("presensi_date", today)
+            .maybeSingle();
+
+          if (checkError) {
+            setFeedback({ type: "error", message: checkError.message });
+            setLoading(false);
+            return;
+          }
+
+          if (existing) {
+            setFeedback({
+              type: "error",
+              message: "Petugas ini sudah presensi hari ini.",
+            });
+            setLoading(false);
+            return;
+          }
 
           const { error } = await supabase.from("presensi").insert({
             nama,
             latitude,
             longitude,
             alamat,
+            presensi_date: today,
           });
 
           if (error) {
-            console.error(error);
-            setFeedback({ type: "error", message: error.message });
+            if (error.message.toLowerCase().includes("duplicate")) {
+              setFeedback({
+                type: "error",
+                message: "Petugas ini sudah presensi hari ini.",
+              });
+            } else {
+              setFeedback({ type: "error", message: error.message });
+            }
           } else {
             setFeedback({ type: "success", message: "Presensi berhasil! 🎉" });
-            setNama("");
-            setTimeout(() => setFeedback({ type: null, message: null }), 3000);
+            setQuery("");
+            setSelectedPetugas(null);
+
+            setTimeout(() => {
+              router.replace("/presensi-sukses");
+            }, 1200);
           }
         } catch (err: unknown) {
-          // Type casting: check jika err adalah Error object
           const errorMessage =
             err instanceof Error
               ? err.message
               : "Terjadi kesalahan yang tidak diketahui";
+
           setFeedback({
             type: "error",
             message: "Gagal mendapatkan alamat: " + errorMessage,
@@ -185,10 +281,9 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-linear-to-br from-orange-50 via-amber-50 to-yellow-50 p-4">
       <div className="max-w-md mx-auto">
-        {/* Header Card */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
           <div className="flex items-center gap-3 mb-2">
-            <div className="bg-linear-to-br from-orange-500 to-amber-600 p-3 rounded-xl">
+            <div className="bg-linear-to-br from-orange-500 to-amber-600 p-3 rounded-xl text-white">
               <CheckCircleIcon />
             </div>
             <h1 className="text-2xl font-bold text-gray-800">
@@ -200,7 +295,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Location Info Card */}
         {currentLocation && (
           <div className="bg-white rounded-xl shadow-md p-4 mb-4 border border-gray-100">
             <div className="flex items-start gap-2">
@@ -220,7 +314,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Feedback Alert */}
         {feedback?.type && (
           <div
             className={`rounded-xl border p-4 mb-4 flex items-center gap-3 ${feedbackStyles[feedback.type]}`}
@@ -234,24 +327,57 @@ export default function Home() {
           </div>
         )}
 
-        {/* Form Card */}
         <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
-          <div className="mb-5">
+          <div className="mb-5" ref={wrapperRef}>
             <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">
               Nama Lengkap
             </label>
+
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                 <UserIcon />
               </div>
+
               <input
-                className="border border-gray-200 p-3 w-full pl-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-gray-700"
-                placeholder="Masukkan nama lengkap Anda"
-                value={nama}
-                onChange={(e) => setNama(e.target.value)}
-                disabled={loading}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelectedPetugas(null);
+                  setShowDropdown(true);
+                }}
+                onFocus={() => setShowDropdown(true)}
+                placeholder="Ketik nama petugas..."
+                className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-gray-800 shadow-sm outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
               />
             </div>
+
+            {showDropdown && (
+              <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                {filteredPetugas.length > 0 ? (
+                  <ul className="max-h-60 overflow-auto py-1">
+                    {filteredPetugas.map((item) => (
+                      <li
+                        key={item.id}
+                        onClick={() => handleSelectPetugas(item)}
+                        className="cursor-pointer px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-700"
+                      >
+                        <div className="font-medium">{item.nama}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    Petugas tidak ditemukan
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedPetugas && (
+              <p className="mt-2 text-xs text-green-600">
+                Terpilih: {selectedPetugas.nama}
+              </p>
+            )}
           </div>
 
           <button
@@ -277,7 +403,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Footer */}
         <div className="text-center mt-6 text-xs text-gray-400">
           <p>Sistem Presensi Sensus Ekonomi 2026 BPS Kota Manado</p>
         </div>
