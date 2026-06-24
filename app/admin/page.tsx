@@ -136,9 +136,7 @@ interface PresensiData {
   longitude: number;
   alamat: string;
   created_at: string;
-  petugas: {
-    nama: string;
-  } | null;
+  petugas: { nama: string } | null;
 }
 
 type RawPresensi = {
@@ -156,23 +154,60 @@ function pickOne<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function getLocalTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function formatDateLabel(dateKey: string) {
+  const [y, m, d] = dateKey.split("-");
+  return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString(
+    "id-ID",
+    {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    },
+  );
+}
+
+function getRangeFromLocalDate(dateKey: string) {
+  const start = new Date(`${dateKey}T00:00:00`);
+  const end = new Date(`${dateKey}T23:59:59.999`);
+  return {
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+}
+
 export default function AdminPage() {
+  const today = getLocalTodayKey();
+
   const [rawData, setRawData] = useState<PresensiData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+  const [selectedDate, setSelectedDate] = useState(today);
 
-  const fetchPresensi = async () => {
+  const fetchPresensi = async (date: string) => {
     setLoading(true);
     setError(null);
+
+    const { startIso, endIso } = getRangeFromLocalDate(date);
 
     const { data: presensiData, error } = await supabase
       .from("presensi")
       .select(
         "id, petugas_id, latitude, longitude, alamat, created_at, petugas(nama)",
       )
+      .gte("created_at", startIso)
+      .lte("created_at", endIso)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -199,27 +234,24 @@ export default function AdminPage() {
 
     setRawData(mapped);
     setLoading(false);
-    console.log(mapped);
   };
 
   useEffect(() => {
-    fetchPresensi();
-  }, []);
+    fetchPresensi(selectedDate);
+  }, [selectedDate]);
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, selectedDate]);
 
   const normalizedSearch = search.toLowerCase().trim();
 
   const filteredData = useMemo(() => {
     if (!normalizedSearch) return rawData;
-
     return rawData.filter((item) => {
       const namaPetugas = item.petugas?.nama?.toLowerCase() ?? "";
       const alamat = item.alamat?.toLowerCase() ?? "";
       const petugasId = String(item.petugas_id).toLowerCase();
-
       return (
         namaPetugas.includes(normalizedSearch) ||
         alamat.includes(normalizedSearch) ||
@@ -241,214 +273,212 @@ export default function AdminPage() {
   }, [page, totalPages]);
 
   const handleRefresh = async () => {
-    await fetchPresensi();
+    await fetchPresensi(selectedDate);
   };
 
-  const todayCount = filteredData.filter((item) => {
-    return (
-      new Date(item.created_at).toDateString() === new Date().toDateString()
-    );
-  }).length;
-
   return (
-    <main className="min-h-screen bg-linear-to-br from-orange-50 via-amber-50 to-yellow-50 p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="bg-linear-to-br from-orange-500 to-amber-600 p-3 rounded-xl">
+    <main className="min-h-screen bg-linear-to-br from-orange-50 via-amber-50 to-yellow-50 p-4 md:p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section className="rounded-3xl bg-white/90 backdrop-blur shadow-lg border border-white p-6 md:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700">
                 <UsersIcon />
+                Dashboard Presensi
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800">
-                  Dashboard Presensi
+                <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
+                  Monitoring Kehadiran
                 </h1>
-                <p className="text-gray-600 text-sm mt-1">
-                  Monitoring kehadiran lapangan realtime
+                <p className="mt-2 text-gray-600">
+                  Lihat presensi per hari, cari data petugas, dan pantau lokasi
+                  dengan tampilan yang lebih rapi.
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 md:flex-row">
-              <div className="flex gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full lg:w-auto">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-500">
+                  Pilih tanggal
+                </span>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 sm:col-span-1 lg:col-span-1">
+                <span className="text-xs font-semibold text-gray-500">
+                  Cari data
+                </span>
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") setPage(1);
-                  }}
-                  placeholder="Cari nama / alamat..."
-                  className="w-full md:w-72 rounded-lg border border-gray-200 px-4 py-2 outline-none focus:ring-4 focus:ring-orange-100 focus:border-orange-400"
+                  placeholder="Nama, alamat, atau ID"
+                  className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
                 />
+              </label>
+
+              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2">
                 <button
                   onClick={() => setPage(1)}
-                  className="bg-orange-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-orange-600 transition-all"
+                  className="h-11 flex-1 rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-600"
                 >
-                  Cari
+                  Terapkan
                 </button>
-              </div>
-
-              <div className="flex gap-3">
                 <button
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-200 transition-all disabled:opacity-50"
+                  className="h-11 rounded-xl bg-white px-4 text-sm font-semibold text-gray-700 border border-gray-200 transition hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   <RefreshIcon />
-                  {loading ? "Loading..." : "Refresh"}
+                  {loading ? "Memuat" : "Refresh"}
                 </button>
-                <button className="flex items-center gap-2 bg-linear-to-r from-orange-500 to-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:shadow-lg transition-all">
+                <button className="h-11 rounded-xl bg-gray-900 px-4 text-sm font-semibold text-white transition hover:bg-gray-800 inline-flex items-center gap-2">
                   <DownloadIcon />
                   Export
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white rounded-xl shadow-md p-5 border border-gray-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="bg-orange-100 p-2 rounded-lg">
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Total data hari ini</p>
+                <h3 className="mt-2 text-3xl font-bold text-gray-900">
+                  {totalCount}
+                </h3>
+              </div>
+              <div className="rounded-2xl bg-orange-100 p-3 text-orange-600">
                 <UsersIcon />
               </div>
-              <p className="text-gray-600 font-medium">Total Presensi</p>
             </div>
-            <p className="text-3xl font-bold text-gray-800">{totalCount}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              Total data sesuai filter
-            </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-md p-5 border border-gray-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="bg-amber-100 p-2 rounded-lg">
+          <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Tanggal terpilih</p>
+                <h3 className="mt-2 text-lg font-bold text-gray-900">
+                  {formatDateLabel(selectedDate)}
+                </h3>
+              </div>
+              <div className="rounded-2xl bg-amber-100 p-3 text-amber-600">
                 <CalendarIcon />
               </div>
-              <p className="text-gray-600 font-medium">Hari Ini</p>
             </div>
-            <p className="text-3xl font-bold text-gray-800">{todayCount}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              Kehadiran tanggal{" "}
-              {new Date().toLocaleDateString("id-ID", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
-            </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-md p-5 border border-gray-100">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="bg-yellow-100 p-2 rounded-lg">
+          <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Status data</p>
+                <h3 className="mt-2 text-lg font-bold text-gray-900">
+                  {loading
+                    ? "Loading..."
+                    : totalCount > 0
+                      ? "Ada data"
+                      : "Kosong"}
+                </h3>
+              </div>
+              <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-600">
                 <LocationIcon />
               </div>
-              <p className="text-gray-600 font-medium">Lokasi Aktif</p>
             </div>
-            <p className="text-3xl font-bold text-gray-800">
-              {totalCount > 0 ? "Active" : "N/A"}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Sistem presensi beroperasi
-            </p>
           </div>
-        </div>
+        </section>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6 flex items-center gap-3">
-            <span className="font-medium">Error: {error}</span>
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+            Error: {error}
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="bg-linear-to-r from-orange-500 to-amber-600 p-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+        <section className="overflow-hidden rounded-3xl bg-white shadow-lg border border-gray-100">
+          <div className="flex items-center justify-between border-b border-gray-100 bg-linear-to-r from-orange-500 to-amber-600 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Data Presensi
+              </h2>
+              <p className="text-sm text-orange-100">
+                Menampilkan data untuk {formatDateLabel(selectedDate)}
+              </p>
+            </div>
+            <div className="hidden md:flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-sm text-white">
               <ClockIcon />
-              Data Kehadiran Terbaru
-            </h2>
+              {filteredData.length} data
+            </div>
           </div>
 
           {loading && !rawData.length ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <div className="p-10 text-center">
+              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
               <p className="text-gray-600">Mengambil data presensi...</p>
             </div>
-          ) : !paginatedData.length ? (
-            <div className="p-8 text-center">
-              <p className="text-gray-600 font-medium">
+          ) : paginatedData.length === 0 ? (
+            <div className="p-10 text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-orange-50 text-orange-500">
+                <CalendarIcon />
+              </div>
+              <p className="text-lg font-semibold text-gray-800">
                 Belum ada data presensi
               </p>
-              <p className="text-gray-400 text-sm mt-1">
-                Data akan muncul setelah orang melakukan presensi
+              <p className="mt-1 text-sm text-gray-500">
+                Coba pilih tanggal lain atau hapus filter pencarian.
               </p>
             </div>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="text-left p-4 font-semibold text-gray-700 text-sm">
-                        Nama
-                      </th>
-                      <th className="text-left p-4 font-semibold text-gray-700 text-sm">
-                        <div className="flex items-center gap-1">
-                          <MapPinIcon />
-                          Latitude
-                        </div>
-                      </th>
-                      <th className="text-left p-4 font-semibold text-gray-700 text-sm">
-                        <div className="flex items-center gap-1">
-                          <MapPinIcon />
-                          Longitude
-                        </div>
-                      </th>
-                      <th className="text-left p-4 font-semibold text-gray-700 text-sm">
-                        Waktu Presensi
-                      </th>
-                      <th className="text-left p-4 font-semibold text-gray-700 text-sm">
-                        Alamat
-                      </th>
+                <table className="min-w-full">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      <th className="px-5 py-4">Nama</th>
+                      <th className="px-5 py-4">Latitude</th>
+                      <th className="px-5 py-4">Longitude</th>
+                      <th className="px-5 py-4">Waktu</th>
+                      <th className="px-5 py-4">Alamat</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {paginatedData.map((item, index) => {
+                  <tbody className="divide-y divide-gray-100">
+                    {paginatedData.map((item) => {
                       const namaPetugas =
                         item.petugas?.nama ?? "Nama Tidak Diketahui";
-                      const initial = namaPetugas
-                        ? namaPetugas.charAt(0).toUpperCase()
-                        : "?";
+                      const initial = namaPetugas.charAt(0).toUpperCase();
 
                       return (
                         <tr
                           key={item.id}
-                          className={`border-t hover:bg-orange-50 transition-all ${
-                            index % 2 === 0 ? "bg-white" : "bg-gray-50"
-                          }`}
+                          className="hover:bg-orange-50/60 transition"
                         >
-                          <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <div className="bg-orange-100 w-8 h-8 rounded-full flex items-center justify-center">
-                                <span className="text-orange-600 font-semibold text-sm">
-                                  {initial}
-                                </span>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 font-semibold text-orange-700">
+                                {initial}
                               </div>
-                              <span className="font-medium text-gray-800">
-                                {namaPetugas}
-                              </span>
+                              <div>
+                                <p className="font-medium text-gray-900">
+                                  {namaPetugas}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  ID: {item.petugas_id}
+                                </p>
+                              </div>
                             </div>
                           </td>
-                          <td className="p-4">
-                            <span className="text-gray-600 text-sm font-mono">
-                              {item.latitude.toFixed(6)}
-                            </span>
+                          <td className="px-5 py-4 font-mono text-sm text-gray-700">
+                            {item.latitude.toFixed(6)}
                           </td>
-                          <td className="p-4">
-                            <span className="text-gray-600 text-sm font-mono">
-                              {item.longitude.toFixed(6)}
-                            </span>
+                          <td className="px-5 py-4 font-mono text-sm text-gray-700">
+                            {item.longitude.toFixed(6)}
                           </td>
-                          <td className="p-4">
+                          <td className="px-5 py-4">
                             <div className="flex items-center gap-2 text-sm text-gray-700">
                               <ClockIcon />
                               <span>
@@ -465,8 +495,8 @@ export default function AdminPage() {
                               </span>
                             </div>
                           </td>
-                          <td className="p-4">
-                            <div className="flex items-center gap-1 text-sm text-gray-600">
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2 text-sm text-gray-700">
                               <MapPinIcon />
                               <span className="max-w-xs truncate">
                                 {item.alamat || "Tidak ada alamat"}
@@ -480,21 +510,20 @@ export default function AdminPage() {
                 </table>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-gray-600">
                   Halaman{" "}
-                  <span className="font-semibold text-gray-800">{page}</span>{" "}
+                  <span className="font-semibold text-gray-900">{page}</span>{" "}
                   dari{" "}
-                  <span className="font-semibold text-gray-800">
+                  <span className="font-semibold text-gray-900">
                     {totalPages}
                   </span>
                 </p>
-
                 <div className="flex gap-2">
                   <button
                     disabled={page === 1 || loading}
                     onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                    className="px-3 py-2 rounded-lg bg-white border text-sm disabled:opacity-50"
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50"
                   >
                     Prev
                   </button>
@@ -503,7 +532,7 @@ export default function AdminPage() {
                     onClick={() =>
                       setPage((prev) => Math.min(totalPages, prev + 1))
                     }
-                    className="px-3 py-2 rounded-lg bg-white border text-sm disabled:opacity-50"
+                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50"
                   >
                     Next
                   </button>
@@ -511,7 +540,7 @@ export default function AdminPage() {
               </div>
             </>
           )}
-        </div>
+        </section>
       </div>
     </main>
   );

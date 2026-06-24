@@ -116,26 +116,35 @@ export default function MapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const today = new Date().toISOString().split("T")[0];
+  const [selectedDate, setSelectedDate] = useState(today);
   const center: [number, number] = [1.4748, 124.8421];
 
-  async function fetchData() {
+  async function fetchData(date: string) {
     setLoading(true);
     setError(null);
 
     try {
+      const startDate = new Date(`${date}T00:00:00`);
+      const endDate = new Date(`${date}T23:59:59`);
+
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
       const { data: presensiData, error } = await supabase
         .from("presensi")
         .select(
           `
-        id,
-        petugas_id,
-        latitude,
-        longitude,
-        alamat,
-        created_at,
-        petugas(nama)
-      `,
+    id,
+    petugas_id,
+    latitude,
+    longitude,
+    alamat,
+    created_at,
+    petugas(nama)
+  `,
         )
+        .gte("created_at", startIso)
+        .lte("created_at", endIso)
         .order("created_at", { ascending: false });
 
       console.log("DATA:", presensiData);
@@ -154,8 +163,8 @@ export default function MapPage() {
   }
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchData(selectedDate);
+  }, [selectedDate]);
 
   const totalMarkers = data.filter(
     (item) => item.latitude && item.longitude,
@@ -167,7 +176,7 @@ export default function MapPage() {
       <div className="max-w-7xl mx-auto p-4">
         {/* Header Card */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-4 border border-gray-100">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="bg-linear-to-br from-orange-500 to-amber-600 p-3 rounded-xl">
                 <MapIcon />
@@ -181,14 +190,24 @@ export default function MapPage() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-200 transition-all disabled:opacity-50"
-            >
-              <RefreshIcon />
-              {loading ? "Loading..." : "Refresh"}
-            </button>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="rounded-lg border border-gray-200 px-4 py-2 outline-none focus:ring-4 focus:ring-orange-100 focus:border-orange-400"
+              />
+
+              <button
+                onClick={() => fetchData(selectedDate)}
+                disabled={loading}
+                className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-200 transition-all disabled:opacity-50"
+              >
+                <RefreshIcon />
+                {loading ? "Loading..." : "Refresh"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -214,7 +233,11 @@ export default function MapPage() {
             </div>
             <p className="text-3xl font-bold text-gray-800">{data.length}</p>
             <p className="text-xs text-gray-500 mt-1">
-              Total kehadiran tercatat
+              {new Date(selectedDate).toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
             </p>
           </div>
 
