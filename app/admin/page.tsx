@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 
 const MapPinIcon = () => (
   <svg
@@ -129,6 +130,11 @@ const LocationIcon = () => (
   </svg>
 );
 
+interface TimData {
+  id: number;
+  nama: string;
+}
+
 interface PresensiData {
   id: number;
   petugas_id: string | number;
@@ -136,7 +142,14 @@ interface PresensiData {
   longitude: number;
   alamat: string;
   created_at: string;
-  petugas: { nama: string } | null;
+  petugas: {
+    nama: string;
+    tim_id: number | string | null;
+    tim?: {
+      id: number;
+      nama: string;
+    } | null;
+  } | null;
 }
 
 type RawPresensi = {
@@ -146,7 +159,18 @@ type RawPresensi = {
   longitude: any;
   alamat: any;
   created_at: any;
-  petugas?: { nama: any }[] | { nama: any } | null;
+  petugas?:
+    | {
+        nama: any;
+        tim_id: any;
+        tim?: { id: any; nama: any }[] | { id: any; nama: any } | null;
+      }[]
+    | {
+        nama: any;
+        tim_id: any;
+        tim?: { id: any; nama: any }[] | { id: any; nama: any } | null;
+      }
+    | null;
 };
 
 function pickOne<T>(value: T | T[] | null | undefined): T | null {
@@ -188,12 +212,30 @@ export default function AdminPage() {
   const today = getLocalTodayKey();
 
   const [rawData, setRawData] = useState<PresensiData[]>([]);
+  const [timList, setTimList] = useState<TimData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>("all");
+
+  const fetchTim = async () => {
+    const { data, error } = await supabase
+      .from("tim")
+      .select("id, nama")
+      .order("nama", { ascending: true });
+
+    if (!error && data) {
+      setTimList(
+        data.map((t: any) => ({
+          id: Number(t.id),
+          nama: String(t.nama ?? ""),
+        })),
+      );
+    }
+  };
 
   const fetchPresensi = async (date: string) => {
     setLoading(true);
@@ -204,7 +246,19 @@ export default function AdminPage() {
     const { data: presensiData, error } = await supabase
       .from("presensi")
       .select(
-        "id, petugas_id, latitude, longitude, alamat, created_at, petugas(nama)",
+        `
+        id,
+        petugas_id,
+        latitude,
+        longitude,
+        alamat,
+        created_at,
+        petugas (
+          nama,
+          tim_id,
+          tim ( id, nama )
+        )
+      `,
       )
       .gte("created_at", startIso)
       .lte("created_at", endIso)
@@ -220,6 +274,8 @@ export default function AdminPage() {
     const mapped: PresensiData[] = ((presensiData ?? []) as RawPresensi[]).map(
       (item) => {
         const petugas = pickOne(item.petugas);
+        const tim = petugas?.tim ? pickOne(petugas.tim as any) : null;
+
         return {
           id: Number(item.id),
           petugas_id: item.petugas_id,
@@ -227,7 +283,15 @@ export default function AdminPage() {
           longitude: Number(item.longitude),
           alamat: String(item.alamat ?? ""),
           created_at: String(item.created_at ?? ""),
-          petugas: petugas ? { nama: String(petugas.nama ?? "") } : null,
+          petugas: petugas
+            ? {
+                nama: String(petugas.nama ?? ""),
+                tim_id: petugas.tim_id ?? null,
+                tim: tim
+                  ? { id: Number(tim.id), nama: String(tim.nama ?? "") }
+                  : null,
+              }
+            : null,
         };
       },
     );
@@ -237,28 +301,44 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
+    fetchTim();
+  }, []);
+
+  useEffect(() => {
     fetchPresensi(selectedDate);
   }, [selectedDate]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedDate]);
+  }, [search, selectedDate, selectedTeamId]);
 
   const normalizedSearch = search.toLowerCase().trim();
 
   const filteredData = useMemo(() => {
-    if (!normalizedSearch) return rawData;
-    return rawData.filter((item) => {
+    let data = rawData;
+
+    if (selectedTeamId !== "all") {
+      data = data.filter(
+        (item) => String(item.petugas?.tim_id ?? "") === selectedTeamId,
+      );
+    }
+
+    if (!normalizedSearch) return data;
+
+    return data.filter((item) => {
       const namaPetugas = item.petugas?.nama?.toLowerCase() ?? "";
       const alamat = item.alamat?.toLowerCase() ?? "";
       const petugasId = String(item.petugas_id).toLowerCase();
+      const timNama = item.petugas?.tim?.nama?.toLowerCase() ?? "";
+
       return (
         namaPetugas.includes(normalizedSearch) ||
         alamat.includes(normalizedSearch) ||
-        petugasId.includes(normalizedSearch)
+        petugasId.includes(normalizedSearch) ||
+        timNama.includes(normalizedSearch)
       );
     });
-  }, [rawData, normalizedSearch]);
+  }, [rawData, normalizedSearch, selectedTeamId]);
 
   const totalCount = filteredData.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -291,8 +371,7 @@ export default function AdminPage() {
                   Monitoring Kehadiran
                 </h1>
                 <p className="mt-2 text-gray-600">
-                  Lihat presensi per hari, cari data petugas, dan pantau lokasi
-                  dengan tampilan yang lebih rapi.
+                  Lihat presensi per hari dan filter berdasarkan tim.
                 </p>
               </div>
             </div>
@@ -310,6 +389,24 @@ export default function AdminPage() {
                 />
               </label>
 
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-500">
+                  Pilih tim
+                </span>
+                <select
+                  value={selectedTeamId}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
+                  className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                >
+                  <option value="all">Semua tim</option>
+                  {timList.map((tim) => (
+                    <option key={tim.id} value={String(tim.id)}>
+                      {tim.nama}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label className="flex flex-col gap-1 sm:col-span-1 lg:col-span-1">
                 <span className="text-xs font-semibold text-gray-500">
                   Cari data
@@ -317,30 +414,27 @@ export default function AdminPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Nama, alamat, atau ID"
+                  placeholder="Nama, alamat, ID, atau tim"
                   className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
                 />
               </label>
 
-              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-2">
-                <button
-                  onClick={() => setPage(1)}
-                  className="h-11 flex-1 rounded-xl bg-orange-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-600"
-                >
-                  Terapkan
-                </button>
+              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
                 <button
                   onClick={handleRefresh}
                   disabled={loading}
                   className="h-11 rounded-xl bg-white px-4 text-sm font-semibold text-gray-700 border border-gray-200 transition hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   <RefreshIcon />
-                  {loading ? "Memuat" : "Refresh"}
+                  Refresh
                 </button>
-                <button className="h-11 rounded-xl bg-gray-900 px-4 text-sm font-semibold text-white transition hover:bg-gray-800 inline-flex items-center gap-2">
-                  <DownloadIcon />
-                  Export
-                </button>
+                <Link
+                  href="/admin/map"
+                  className="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 inline-flex items-center gap-2"
+                >
+                  <MapPinIcon />
+                  Peta
+                </Link>
               </div>
             </div>
           </div>
@@ -348,49 +442,27 @@ export default function AdminPage() {
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Total data hari ini</p>
-                <h3 className="mt-2 text-3xl font-bold text-gray-900">
-                  {totalCount}
-                </h3>
-              </div>
-              <div className="rounded-2xl bg-orange-100 p-3 text-orange-600">
-                <UsersIcon />
-              </div>
-            </div>
+            <p className="text-sm text-gray-500">Total data</p>
+            <h3 className="mt-2 text-3xl font-bold text-gray-900">
+              {totalCount}
+            </h3>
           </div>
 
           <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Tanggal terpilih</p>
-                <h3 className="mt-2 text-lg font-bold text-gray-900">
-                  {formatDateLabel(selectedDate)}
-                </h3>
-              </div>
-              <div className="rounded-2xl bg-amber-100 p-3 text-amber-600">
-                <CalendarIcon />
-              </div>
-            </div>
+            <p className="text-sm text-gray-500">Tanggal terpilih</p>
+            <h3 className="mt-2 text-lg font-bold text-gray-900">
+              {formatDateLabel(selectedDate)}
+            </h3>
           </div>
 
           <div className="rounded-2xl bg-white shadow-sm border border-gray-100 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Status data</p>
-                <h3 className="mt-2 text-lg font-bold text-gray-900">
-                  {loading
-                    ? "Loading..."
-                    : totalCount > 0
-                      ? "Ada data"
-                      : "Kosong"}
-                </h3>
-              </div>
-              <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-600">
-                <LocationIcon />
-              </div>
-            </div>
+            <p className="text-sm text-gray-500">Tim terpilih</p>
+            <h3 className="mt-2 text-lg font-bold text-gray-900">
+              {selectedTeamId === "all"
+                ? "Semua tim"
+                : (timList.find((t) => String(t.id) === selectedTeamId)?.nama ??
+                  "Tim tidak ditemukan")}
+            </h3>
           </div>
         </section>
 
@@ -407,138 +479,71 @@ export default function AdminPage() {
                 Data Presensi
               </h2>
               <p className="text-sm text-orange-100">
-                Menampilkan data untuk {formatDateLabel(selectedDate)}
+                {formatDateLabel(selectedDate)} •{" "}
+                {selectedTeamId === "all" ? "Semua tim" : "Filter tim aktif"}
               </p>
-            </div>
-            <div className="hidden md:flex items-center gap-2 rounded-full bg-white/15 px-3 py-2 text-sm text-white">
-              <ClockIcon />
-              {filteredData.length} data
             </div>
           </div>
 
           {loading && !rawData.length ? (
-            <div className="p-10 text-center">
-              <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
-              <p className="text-gray-600">Mengambil data presensi...</p>
-            </div>
+            <div className="p-10 text-center">Loading...</div>
           ) : paginatedData.length === 0 ? (
             <div className="p-10 text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-orange-50 text-orange-500">
-                <CalendarIcon />
-              </div>
               <p className="text-lg font-semibold text-gray-800">
                 Belum ada data presensi
               </p>
               <p className="mt-1 text-sm text-gray-500">
-                Coba pilih tanggal lain atau hapus filter pencarian.
+                Coba ubah tanggal atau filter tim.
               </p>
             </div>
           ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full">
-                  <thead className="sticky top-0 bg-gray-50">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      <th className="px-5 py-4">Nama</th>
-                      <th className="px-5 py-4">Latitude</th>
-                      <th className="px-5 py-4">Longitude</th>
-                      <th className="px-5 py-4">Waktu</th>
-                      <th className="px-5 py-4">Alamat</th>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    <th className="px-5 py-4">Nama</th>
+                    <th className="px-5 py-4">Tim</th>
+                    <th className="px-5 py-4">Latitude</th>
+                    <th className="px-5 py-4">Longitude</th>
+                    <th className="px-5 py-4">Waktu</th>
+                    <th className="px-5 py-4">Alamat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paginatedData.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-orange-50/60 transition"
+                    >
+                      <td className="px-5 py-4">
+                        {item.petugas?.nama ?? "Nama Tidak Diketahui"}
+                      </td>
+                      <td className="px-5 py-4">
+                        {item.petugas?.tim?.nama ?? "Tidak ada tim"}
+                      </td>
+                      <td className="px-5 py-4 font-mono text-sm">
+                        {item.latitude.toFixed(6)}
+                      </td>
+                      <td className="px-5 py-4 font-mono text-sm">
+                        {item.longitude.toFixed(6)}
+                      </td>
+                      <td className="px-5 py-4">
+                        {new Date(item.created_at).toLocaleString("id-ID", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-5 py-4">
+                        {item.alamat || "Tidak ada alamat"}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {paginatedData.map((item) => {
-                      const namaPetugas =
-                        item.petugas?.nama ?? "Nama Tidak Diketahui";
-                      const initial = namaPetugas.charAt(0).toUpperCase();
-
-                      return (
-                        <tr
-                          key={item.id}
-                          className="hover:bg-orange-50/60 transition"
-                        >
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 font-semibold text-orange-700">
-                                {initial}
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-900">
-                                  {namaPetugas}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  ID: {item.petugas_id}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4 font-mono text-sm text-gray-700">
-                            {item.latitude.toFixed(6)}
-                          </td>
-                          <td className="px-5 py-4 font-mono text-sm text-gray-700">
-                            {item.longitude.toFixed(6)}
-                          </td>
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2 text-sm text-gray-700">
-                              <ClockIcon />
-                              <span>
-                                {new Date(item.created_at).toLocaleString(
-                                  "id-ID",
-                                  {
-                                    day: "numeric",
-                                    month: "short",
-                                    year: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  },
-                                )}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2 text-sm text-gray-700">
-                              <MapPinIcon />
-                              <span className="max-w-xs truncate">
-                                {item.alamat || "Tidak ada alamat"}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-gray-600">
-                  Halaman{" "}
-                  <span className="font-semibold text-gray-900">{page}</span>{" "}
-                  dari{" "}
-                  <span className="font-semibold text-gray-900">
-                    {totalPages}
-                  </span>
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    disabled={page === 1 || loading}
-                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50"
-                  >
-                    Prev
-                  </button>
-                  <button
-                    disabled={page >= totalPages || loading}
-                    onClick={() =>
-                      setPage((prev) => Math.min(totalPages, prev + 1))
-                    }
-                    className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>

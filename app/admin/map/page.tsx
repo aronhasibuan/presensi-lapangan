@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 
 const MapView = dynamic(() => import("./mapview"), {
   ssr: false,
@@ -207,6 +208,13 @@ export default function MapPage() {
                 <RefreshIcon />
                 {loading ? "Loading..." : "Refresh"}
               </button>
+
+              <Link
+                href="/admin"
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50"
+              >
+                ← Kembali ke Admin
+              </Link>
             </div>
           </div>
         </div>
